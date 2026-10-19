@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Compaction Threshold",
+    "description": "Choose the token length at which older conversation history is summarized; defaults to 300k."
+  }
+}
