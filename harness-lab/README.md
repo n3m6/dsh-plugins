@@ -23,6 +23,7 @@ node "$HL" apply --revert <id>                                    # undo
 node "$HL" reject <signature> --reason "why"                      # silence it for 90 days
 node "$HL" watch                           # did the edit work?
 node "$HL" status                          # one screen: adoptions, rejections, drift
+node "$HL" audit                           # monthly: prune / promote / demote / compress
 node "$HL" selftest                        # check the lab itself
 ```
 
@@ -54,10 +55,14 @@ list in a fresh session's first prompt.
 | Weekly, Monday | `node "$HL" digest` then review candidates | every project, 3-project bar |
 | After a bad session | `node "$HL" digest --project <dir>` | one project, 2-session bar |
 | After any apply | `node "$HL" watch` | resolves open adoptions |
-| Monthly | `node "$HL" audit` (not implemented yet) | prune / promote / demote |
+| Monthly | `node "$HL" audit` | prune / promote / demote / compress |
 
 A week with nothing to propose is a normal outcome: the run records
 `verdict: quiet` and the loop stays silent.
+
+`audit --strict` exits 1 when it finds anything actionable, which is what a
+reminder or a cron job wants. It is a report and never edits anything: every
+candidate still goes through a proposal, a diff, and an approval.
 
 ## How the loop runs
 

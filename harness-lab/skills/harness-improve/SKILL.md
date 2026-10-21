@@ -158,20 +158,28 @@ anything.
 
 ## Monthly rebalancing
 
-Once a month, instead of (or in addition to) the sweep:
+```bash
+node scripts/harness.mjs audit            # the report
+node scripts/harness.mjs audit --json     # machine-readable
+node scripts/harness.mjs audit --strict   # exit 1 when anything is actionable
+```
 
-- **Prune** — a skill with no `skillInvocations` in 90 days, older than 60 days,
-  not referenced elsewhere. `move` it to `archive/skills/<name>/`, never delete.
-  Prune always needs explicit approval.
-- **Promote** — a project skill whose signature appears in ≥3 projects and whose
-  body still reads as a complete procedure after stripping repo nouns (paths,
-  package names, service names). One edit set: create global **and** delete the
-  project copy. Leaving the local copy means it shadows the global one and the
-  promotion does nothing.
-- **Demote** — the reverse: a global skill invoked in exactly one project for 90
-  days moves down into that project.
-- **Compress** — AGENTS.md cannot be pruned section by section, so the monthly
-  pass merges duplicates and reports the byte count against the 65536 budget.
+The audit is a report and never edits. It inventories every skill root, the
+invocations recorded in the window, and the AGENTS.md sizes, then proposes:
+
+- **promote** — the same skill name under two or more project roots. The report
+  says whether the copies are byte-identical: identical copies promote cleanly,
+  variants need a merge first. One edit set creates the global skill **and**
+  deletes the project copies, or the local copy shadows it.
+- **prune** — older than 60 days, no invocation in the window, referenced
+  nowhere else. `move` it to `archive/skills/<name>/`; never delete.
+- **demote** — a user-root skill invoked from exactly one project.
+- **compress** — an AGENTS.md above 75% of the 65536-byte budget.
+
+Prune and demote are suppressed when the corpus records no skill invocations at
+all: with no signal every skill would look unused, and a report that says that
+is worse than a report that says nothing. Read the `notes` block before proposing
+anything — "no recorded invocation" is not "unused".
 
 ## Non-negotiables
 

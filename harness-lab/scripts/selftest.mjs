@@ -13,7 +13,7 @@
  * a non-zero exit. All fixtures are removed either way.
  */
 import { spawnSync } from 'node:child_process'
-import { lstat, mkdir, rm, rmdir, writeFile, readFile } from 'node:fs/promises'
+import { lstat, mkdir, rm, rmdir, utimes, writeFile, readFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -376,10 +376,12 @@ async function caseDispatcher() {
   const failing = dispatch(['apply', '--set', join(lab, 'missing.json')], { lab, expect: null })
   assert(failing.status !== 0, 'the dispatcher swallowed a child failure')
 
-  // A command with no script behind it exits 2 with a readable message.
-  const unimplemented = dispatch(['audit'], { lab, expect: null })
-  assert(unimplemented.status === 2, `audit exited ${unimplemented.status}, expected 2`)
-  assert(/not implemented/.test(unimplemented.output), 'audit did not say it is unimplemented')
+  // `audit` is implemented and must run through the dispatcher.
+  const audit = dispatch(['audit', '--json'], {
+    lab,
+    env: { AGENTS_HOME: join(lab, 'agents-home'), DSH_HOME: join(lab, 'dsh-home') },
+  })
+  assert(/"caveats"/.test(audit.output), 'the dispatcher did not reach audit.mjs')
 
   // `reject <key>` is sugar for `--reject <key>`; the rest of the args pass through.
   dispatch(['reject', SIGNATURE, '--reason', 'via dispatcher'], { lab })
@@ -416,6 +418,78 @@ async function caseInstall() {
   assert(!(await exists(target)), 'uninstall left the entry behind')
 }
 
+
+/** One digest carrying skill invocations, which is what the audit reads. */
+async function writeSkillDigest(lab, { id, cwd, startedAt, uses }) {
+  await write(join(lab, 'digests', `${id}.json`), JSON.stringify({ sessionId: id, cwd, startedAt, metrics: { skillInvocations: uses ?? {} } }))
+}
+
+async function caseAudit() {
+  const lab = await makeLab('audit')
+  const agentsHome = join(lab, 'agents-home')
+  const dshHome = join(lab, 'dsh-home')
+  const projA = join(lab, 'proj-a')
+  const projB = join(lab, 'proj-b')
+  const env = { AGENTS_HOME: agentsHome, DSH_HOME: dshHome, HARNESS_LAB_DIR: lab }
+  const skill = (name) => `---\nname: ${name}\ndescription: fixture\n---\nBody.\n`
+
+  await write(join(agentsHome, 'skills', 'old-unused', 'SKILL.md'), skill('old-unused'))
+  await write(join(agentsHome, 'skills', 'single-project', 'SKILL.md'), skill('single-project'))
+  await write(join(agentsHome, 'skills', 'busy', 'SKILL.md'), skill('busy'))
+  await write(join(dshHome, 'AGENTS.md'), `# big\n${'x'.repeat(60000)}\n`)
+  // A `.git` marker stops the project-root walk at the fixture instead of the real repo.
+  await write(join(projA, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+  await write(join(projB, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+  await write(join(projA, '.agents', 'skills', 'shared', 'SKILL.md'), skill('shared'))
+  await write(join(projB, '.agents', 'skills', 'shared', 'SKILL.md'), skill('shared'))
+
+  const old = new Date(NOW - 100 * DAY)
+  await utimes(join(agentsHome, 'skills', 'old-unused', 'SKILL.md'), old, old)
+
+  await writeSkillDigest(lab, { id: 'a1', cwd: projA, startedAt: daysAgo(5), uses: { 'single-project': 1, busy: 2 } })
+  await writeSkillDigest(lab, { id: 'a2', cwd: projB, startedAt: daysAgo(4), uses: { busy: 1 } })
+
+  const result = run('audit.mjs', ['--json', '--now', NOW_ISO, '--since', '90'], lab, { env })
+  const report = JSON.parse(result.output)
+
+  assert(report.corpus.sessions === 2, `audit counted ${report.corpus.sessions} sessions, expected 2`)
+  const prune = report.candidates.prune.map((entry) => entry.name)
+  assert(prune.includes('old-unused'), 'an old, unused, unreferenced skill was not a prune candidate')
+  assert(!prune.includes('busy'), 'a used skill was flagged for pruning')
+  assert(!prune.includes('single-project'), 'a recent skill was flagged for pruning')
+
+  const demote = report.candidates.demote.map((entry) => entry.name)
+  assert(demote.includes('single-project'), 'a user skill used from one project was not a demote candidate')
+  assert(!demote.includes('busy'), 'a skill used from two projects was flagged for demotion')
+
+  const promote = report.candidates.promote.find((entry) => entry.name === 'shared')
+  assert(promote, 'a skill defined under two project roots was not a promote candidate')
+  assert(promote.copies === 2 && promote.variants === 1, `promote reports ${promote.copies} copies / ${promote.variants} variants`)
+
+  const compress = report.candidates.compress.map((entry) => entry.file)
+  assert(compress.some((file) => file.endsWith('AGENTS.md')), 'an over-budget AGENTS.md was not a compress candidate')
+
+  // A corpus that never calls the skill tool must not report every skill as unused.
+  const quiet = await makeLab('audit-quiet')
+  const quietAgents = join(quiet, 'agents-home')
+  await write(join(quietAgents, 'skills', 'never-called', 'SKILL.md'), skill('never-called'))
+  const quietOld = new Date(NOW - 200 * DAY)
+  await utimes(join(quietAgents, 'skills', 'never-called', 'SKILL.md'), quietOld, quietOld)
+  await writeSkillDigest(quiet, { id: 'q1', cwd: join(quiet, 'p'), startedAt: daysAgo(3), uses: {} })
+
+  const quietReport = JSON.parse(
+    run('audit.mjs', ['--json', '--now', NOW_ISO], quiet, { env: { AGENTS_HOME: quietAgents, DSH_HOME: join(quiet, 'dsh-home') } }).output,
+  )
+  assert(quietReport.candidates.prune.length === 0, 'prune fired on a corpus with no skill invocations')
+  assert(
+    quietReport.caveats.some((line) => /never invoked/.test(line)),
+    'the report did not explain that use counts carry no signal here',
+  )
+
+  const strict = run('audit.mjs', ['--now', NOW_ISO, '--strict'], lab, { env, expect: null })
+  assert(strict.status === 1, `--strict exited ${strict.status} with candidates present`)
+}
+
 async function caseCwd() {
   const lab = await makeLab('cwd')
   const elsewhere = join(lab, 'elsewhere')
@@ -443,13 +517,14 @@ async function main() {
     await caseEvidence()
     await caseStatus()
     await caseDispatcher()
+    await caseAudit()
     await caseInstall()
     await caseCwd()
   } finally {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  11 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, install, cwd independence`
+  return `PASS  12 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
 }
 
 try {

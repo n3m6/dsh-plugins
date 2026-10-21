@@ -239,9 +239,17 @@ month would also be a month without pruning.
 `name=skill` records the skill id. So `skillInvocations` gives per-skill firing
 over the window, per project and globally.
 
+**When the corpus records no `skill` invocations at all, prune and demote are
+suppressed.** A tool that was never called is not evidence that every skill is
+dead, and a report that flags all of them is worse than a report that says
+nothing. The audit names the condition in its notes instead. This was not a
+hypothesis: the first real corpus (46 sessions) contains zero `skill` calls.
+
 ### Prune
 A skill is a prune candidate when all hold: not invoked in 90 days; created more
-than 60 days ago; not referenced by another skill or an AGENTS.md section.
+than 60 days ago; not referenced by another skill or an AGENTS.md section — and
+the corpus recorded at least one `skill` invocation, per the suppression rule
+above.
 
 Pruning **archives, never deletes**: move to `archive/skills/<name>/`, keep the
 entry in `index.json` with `state: archived`. Restore is a move back. Pruning is
@@ -254,8 +262,14 @@ duplicates, drop anything the evidence no longer supports, and report the byte
 count against the 65536 cap. You see the diff; nothing is dropped silently.
 
 ### Promote
-A project skill is a promotion candidate when the signature it addresses appears
-in **≥3 projects** and its body is procedure rather than fact.
+The observable form — and the one the audit reports — is **the same skill name
+under two or more project roots**. That is what "rewritten per project" looks
+like on disk. The report distinguishes *byte-identical copies* (promote one as
+is) from *variants* (merge first), because a promotion that picks one of three
+diverged copies silently drops the other two.
+
+Universality is still a judgment, not a rule: the body must be procedure rather
+than fact.
 
 Operable universality test: strip the repo-specific nouns — paths, package names,
 service names, domain identifiers. If what remains is still a complete, usable
