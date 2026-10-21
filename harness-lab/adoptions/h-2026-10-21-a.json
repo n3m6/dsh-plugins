@@ -1,0 +1,33 @@
+{
+  "id": "h-2026-10-21-a",
+  "at": "2026-10-21T04:16:55.122Z",
+  "set": {
+    "kind": "add",
+    "scope": "global",
+    "class": "procedure",
+    "dimension": "toolErrors"
+  },
+  "target": "/home/n3m6/.dsh",
+  "signature": "edit:FsError/FS_NOT_OBSERVED",
+  "baseline": {
+    "sessions": 21,
+    "hits": 39,
+    "sessionsPerHit": 0.5384615384615384
+  },
+  "evidence": [
+    "21 sessions across 15 projects",
+    "39 FsError/FS_NOT_OBSERVED hits"
+  ],
+  "rationale": "Of 124 FS_NOT_OBSERVED edit/write failures across the corpus, 122 were preceded by a bash command touching the same filename and 0 by a read-tool call: the model inspects with cat/sed and then edits. The existing rule says 'read before editing' but not that a bash read does not satisfy the policy.",
+  "files": [
+    {
+      "index": 0,
+      "file": "/home/n3m6/.dsh/AGENTS.md",
+      "existedBefore": false,
+      "deleted": false,
+      "beforeHash": null,
+      "afterHash": "f87417c342a01eda"
+    }
+  ],
+  "revertedAt": null
+}
