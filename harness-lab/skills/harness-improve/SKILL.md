@@ -11,10 +11,20 @@ that can be reverted.
 
 ## Run a review
 
+All commands go through one dispatcher, so they work from any directory:
+
 ```bash
-node scripts/digest.mjs                      # weekly sweep: all projects, 3-project bar
-node scripts/digest.mjs --project ~/work/x   # on demand: one project, 2-session bar
-node scripts/digest.mjs --since 90 --json    # wider window, machine-readable
+LAB=/home/n3m6/dsh-plugins/harness-lab      # the checkout
+HL="$LAB/scripts/harness.mjs"                # the dispatcher
+```
+
+If the checkout moves, update `LAB`; `node "$HL" --help` lists every command and
+`install.mjs --check` prints the code root it resolves.
+
+```bash
+node "$HL" digest                      # weekly sweep: all projects, 3-project bar
+node "$HL" digest --project ~/work/x   # on demand: one project, 2-session bar
+node "$HL" digest --since 90 --json    # wider window, machine-readable
 ```
 
 The digest writes one file per session plus a signature cluster, and prints the
@@ -38,8 +48,8 @@ A two-line sample from the digest is not enough to explain a signature. Read
 what actually happened around every occurrence:
 
 ```bash
-node scripts/evidence.mjs --signature edit:FsError/FS_NOT_OBSERVED
-node scripts/evidence.mjs --signature repeat:bash --context 5 --limit 10
+node "$HL" evidence --signature edit:FsError/FS_NOT_OBSERVED
+node "$HL" evidence --signature repeat:bash --context 5 --limit 10
 ```
 
 It prints the calls before each occurrence and an aggregate over all of them:
@@ -103,15 +113,15 @@ failure.
 ## Preview, then apply
 
 ```bash
-node scripts/apply-edits.mjs --set proposals/h-2026-10-21-a.edits.json
+node "$HL" apply --set "$LAB"/proposals/h-2026-10-21-a.edits.json
 ```
 
 Dry run is the default and prints a diff. **Show that diff to the user and wait.**
 Apply only after they approve:
 
 ```bash
-node scripts/apply-edits.mjs --set proposals/h-2026-10-21-a.edits.json --write
-node scripts/apply-edits.mjs --revert h-2026-10-21-a     # if it was a mistake
+node "$HL" apply --set "$LAB"/proposals/h-2026-10-21-a.edits.json --write
+node "$HL" apply --revert h-2026-10-21-a     # if it was a mistake
 ```
 
 If `--write` fails with a permission error, the target is outside the writable
@@ -122,8 +132,8 @@ workspace. Ask for the escalation; do not try another path.
 An applied edit is not a result. Two commands decide:
 
 ```bash
-node scripts/watch.mjs      # kept / reverted / inconclusive for every open adoption
-node scripts/status.mjs     # adoptions, active rejections, and drift
+node "$HL" watch      # kept / reverted / inconclusive for every open adoption
+node "$HL" status     # adoptions, active rejections, and drift
 ```
 
 `watch.mjs` withholds a verdict until 10 sessions have started after the
@@ -138,8 +148,8 @@ mean the measurement is compromised, and none of them show up in the digest.
 ## When the user says no
 
 ```bash
-node scripts/apply-edits.mjs --reject <signature> --reason "one line why"
-node scripts/apply-edits.mjs --unreject <signature>   # to reopen it
+node "$HL" reject <signature> --reason "one line why"
+node "$HL" unreject <signature>   # to reopen it
 ```
 
 A rejection silences that signature for 90 days in every later digest; without

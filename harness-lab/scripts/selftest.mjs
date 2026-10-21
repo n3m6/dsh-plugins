@@ -13,8 +13,8 @@
  * a non-zero exit. All fixtures are removed either way.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdir, rm, rmdir, writeFile, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { lstat, mkdir, rm, rmdir, writeFile, readFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { selectCandidates } from './lib/signatures.mjs'
@@ -82,18 +82,28 @@ async function appendExperience(lab, id, extra = '') {
   await write(join(lab, 'EXPERIENCE.md'), `${text.trimEnd()}\n${line}`)
 }
 
-/** Run one lab script against a throwaway lab. */
-function run(script, args, lab, { expect = 0, env = {} } = {}) {
-  const result = spawnSync(process.execPath, [join(SCRIPTS, script), ...args], {
-    cwd: lab,
+/** Run a Node entry point with the lab environment applied. */
+function spawnNode(scriptPath, args, { lab, cwd, env = {}, expect = 0 } = {}) {
+  const result = spawnSync(process.execPath, [scriptPath, ...args], {
+    cwd: cwd ?? lab,
     encoding: 'utf8',
-    env: { ...process.env, HARNESS_LAB_DIR: lab, ...env },
+    env: { ...process.env, ...(lab ? { HARNESS_LAB_DIR: lab } : {}), ...env },
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
   if (expect !== null && result.status !== expect) {
-    throw new Error(`${script} ${args.join(' ')} exited ${result.status}\n${output}`)
+    throw new Error(`${basename(scriptPath)} ${args.join(' ')} exited ${result.status}\n${output}`)
   }
   return { status: result.status, output }
+}
+
+/** Run one lab script against a throwaway lab. */
+function run(script, args, lab, options = {}) {
+  return spawnNode(join(SCRIPTS, script), args, { lab, ...options })
+}
+
+/** Run the dispatcher, optionally from a directory outside the checkout. */
+function dispatch(args, options = {}) {
+  return spawnNode(join(SCRIPTS, 'harness.mjs'), args, options)
 }
 
 // ---------------------------------------------------------------- cases ----
@@ -352,6 +362,74 @@ async function caseStatus() {
   assert(result.output.includes('file-changed'), 'status did not flag the file edited after adoption')
 }
 
+async function caseDispatcher() {
+  const lab = await makeLab('dispatcher')
+
+  const help = dispatch(['--help'], { lab })
+  assert(help.output.includes('digest') && help.output.includes('selftest'), 'help does not list the commands')
+  assert(help.output.includes('reject'), 'help does not list reject')
+
+  const status = dispatch(['status'], { lab })
+  assert(/status/i.test(status.output), 'the dispatcher did not reach status.mjs')
+
+  // A child's non-zero exit must survive the hop.
+  const failing = dispatch(['apply', '--set', join(lab, 'missing.json')], { lab, expect: null })
+  assert(failing.status !== 0, 'the dispatcher swallowed a child failure')
+
+  // A command with no script behind it exits 2 with a readable message.
+  const unimplemented = dispatch(['audit'], { lab, expect: null })
+  assert(unimplemented.status === 2, `audit exited ${unimplemented.status}, expected 2`)
+  assert(/not implemented/.test(unimplemented.output), 'audit did not say it is unimplemented')
+
+  // `reject <key>` is sugar for `--reject <key>`; the rest of the args pass through.
+  dispatch(['reject', SIGNATURE, '--reason', 'via dispatcher'], { lab })
+  const store = await readJsonFile(join(lab, 'rejections.json'))
+  assert(store[SIGNATURE]?.reason === 'via dispatcher', 'the dispatcher did not forward reject')
+  dispatch(['unreject', SIGNATURE], { lab })
+  assert(!(await readJsonFile(join(lab, 'rejections.json')))[SIGNATURE], 'the dispatcher did not forward unreject')
+}
+
+async function caseInstall() {
+  const lab = await makeLab('install')
+  const agents = join(lab, 'agents-home')
+  const env = { AGENTS_HOME: agents }
+  const install = join(SCRIPTS, 'install.mjs')
+  const target = join(agents, 'skills', 'harness-improve')
+
+  const before = spawnNode(install, ['--check'], { lab, env })
+  assert(/absent/.test(before.output), 'check did not report the skill as absent')
+  assert(/ready/.test(before.output), 'check reported trouble before anything was installed')
+
+  const installed = spawnNode(install, ['--install'], { lab, env })
+  assert(/installed/.test(installed.output), 'install did not report success')
+  const entry = await lstat(target)
+  const ours = entry.isSymbolicLink() || (entry.isDirectory() && (await exists(join(target, '.harness-lab-install'))))
+  assert(ours, 'install produced neither a symlink nor a marked copy')
+
+  const again = spawnNode(install, ['--install'], { lab, env })
+  assert(/already installed/.test(again.output), 'install is not idempotent')
+
+  const after = spawnNode(install, ['--check'], { lab, env })
+  assert(/install\s+ok/.test(after.output), 'check did not recognise the install')
+
+  spawnNode(install, ['--uninstall'], { lab, env })
+  assert(!(await exists(target)), 'uninstall left the entry behind')
+}
+
+async function caseCwd() {
+  const lab = await makeLab('cwd')
+  const elsewhere = join(lab, 'elsewhere')
+  const sessions = join(lab, 'sessions')
+  await mkdir(elsewhere, { recursive: true })
+  await mkdir(sessions, { recursive: true })
+
+  const status = dispatch(['status'], { lab, cwd: elsewhere })
+  assert(/status/i.test(status.output), 'status does not run from outside the checkout')
+
+  const digest = dispatch(['digest', '--since', '1'], { lab, cwd: elsewhere, env: { DSH_SESSIONS_DIR: sessions } })
+  assert(/scope\s+global/.test(digest.output), 'digest does not run from outside the checkout')
+}
+
 async function main() {
   await rm(RUN, { recursive: true, force: true })
   await mkdir(RUN, { recursive: true })
@@ -364,11 +442,14 @@ async function main() {
     await caseWatchInconclusive()
     await caseEvidence()
     await caseStatus()
+    await caseDispatcher()
+    await caseInstall()
+    await caseCwd()
   } finally {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  8 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift`
+  return `PASS  11 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, install, cwd independence`
 }
 
 try {
