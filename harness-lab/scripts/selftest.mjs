@@ -17,7 +17,10 @@ import { lstat, mkdir, rm, rmdir, utimes, writeFile, readFile } from 'node:fs/pr
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { zstdCompressSync } from 'node:zlib'
+
 import { collectSignatures, selectCandidates } from './lib/signatures.mjs'
+import { listSessionFiles, readSession } from './lib/sessions.mjs'
 import { measureSignature } from './lib/measure.mjs'
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url))
@@ -56,6 +59,12 @@ async function exists(file) {
 }
 
 /** A minimal lab: empty digests, no adoptions, no rejections, empty journal. */
+/** Write one zstd-compressed session artifact, the way DSH persists them. */
+async function writeCompressed(file, text) {
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, zstdCompressSync(Buffer.from(text, 'utf8')))
+}
+
 async function makeLab(name) {
   const dir = join(RUN, name)
   await mkdir(join(dir, 'digests'), { recursive: true })
@@ -322,6 +331,39 @@ async function caseWatchInconclusive() {
   assert(lines[0].includes('**kept**') && !lines[0].includes('**inconclusive**'), 'the provisional marker was not replaced')
 }
 
+/**
+ * Session artifacts are versioned and their directory names are not stable.
+ *
+ * The first implementation matched one literal filename inside `session-*`
+ * directories, so it read 46 of 187 sessions, all of them from August, and
+ * silently reported a two-month-stale corpus as if it were current. This pins
+ * both axes: the name suffix and the directory shape.
+ */
+async function caseSessionFormats() {
+  const root = join(RUN, 'sessions-formats')
+  const corpus = join(root, '--fixture--')
+  const header = (id, version) => `${JSON.stringify({ type: 'session', version, id, cwd: '/fixture', createdAt: NOW - DAY })}\n`
+  const at = (file, text) => writeCompressed(file, text)
+
+  await at(join(corpus, 'session-legacy', 'session.jsonl.zstd'), header('legacy', 0))
+  await at(join(corpus, 'bare-uuid', 'session.v4.jsonl.zstd'), header('modern', 4))
+  await at(join(corpus, 'mixed', 'session.jsonl.zstd'), header('old-copy', 0))
+  await at(join(corpus, 'mixed', 'session.v4.jsonl.zstd'), header('new-copy', 4))
+
+  const files = await listSessionFiles(root)
+  assert(files.length === 3, `expected 3 sessions (newest format per directory), got ${files.length}`)
+  const versions = files.map((entry) => entry.version).sort()
+  assert(versions.join() === '0,4,4', `unexpected formats discovered: ${versions.join()}`)
+
+  const mixed = files.find((entry) => entry.sessionDir === 'mixed')
+  const parsed = await readSession(mixed.file)
+  assert(parsed.id === 'new-copy', `newest format did not win in a mixed directory: ${parsed.id}`)
+  assert(parsed.formatVersion === 4, `format version not read: ${parsed.formatVersion}`)
+
+  const legacy = await readSession(files.find((entry) => entry.sessionDir === 'session-legacy').file)
+  assert(legacy.id === 'legacy' && legacy.formatVersion === 0, 'legacy artifact not parsed')
+}
+
 async function caseEvidence() {
   const lab = await makeLab('evidence')
   const sessions = join(RUN, 'evidence', 'sessions')
@@ -554,6 +596,7 @@ async function main() {
   try {
     await caseApplier()
     await caseHistogram()
+    await caseSessionFormats()
     await caseRejection()
     await caseWatchPending()
     await caseWatchKept()
@@ -569,7 +612,7 @@ async function main() {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  13 cases: applier round-trip, signature rule, histogram, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
+  return `PASS  14 cases: applier round-trip, signature rule, histogram, session formats, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
 }
 
 try {

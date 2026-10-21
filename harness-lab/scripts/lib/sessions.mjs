@@ -15,7 +15,21 @@ export const SESSIONS_ROOT = process.env.DSH_SESSIONS_DIR ?? join(homedir(), '.d
 
 const WRITE_TOOLS = new Set(['write', 'edit', 'str_replace_editor'])
 
-/** Every session directory's session.jsonl[.zstd] under the sessions root. */
+/**
+ * Session artifacts are versioned: `session.jsonl.zstd`, `.v3.`, `.v4.`.
+ *
+ * Matching one literal filename reads only the oldest format still on disk and
+ * silently ignores every newer session — which is exactly what happened before
+ * this was fixed. Parse the version out of the name and take the highest one
+ * present in each session directory.
+ */
+export function parseSessionFileName(name) {
+  const match = /^session(?:\.v(\d+))?\.jsonl(\.zstd)?$/.exec(name)
+  if (!match) return null
+  return { version: Number(match[1] ?? 0), compressed: Boolean(match[2]) }
+}
+
+/** Every session artifact under the sessions root, newest format per directory. */
 export async function listSessionFiles(root = SESSIONS_ROOT) {
   const files = []
   const projects = await readdir(root, { withFileTypes: true }).catch(() => [])
@@ -24,15 +38,22 @@ export async function listSessionFiles(root = SESSIONS_ROOT) {
     const projectDir = join(root, project.name)
     const sessions = await readdir(projectDir, { withFileTypes: true }).catch(() => [])
     for (const session of sessions) {
-      if (!session.isDirectory() || !session.name.startsWith('session-')) continue
-      for (const name of ['session.jsonl.zstd', 'session.jsonl']) {
-        const file = join(projectDir, session.name, name)
-        const info = await stat(file).catch(() => null)
-        if (info?.isFile()) {
-          files.push({ file, corpus: project.name, sessionDir: session.name, mtimeMs: info.mtimeMs })
-          break
-        }
+      // Directory names are not stable: older artifacts live in `session-<uuid>`,
+      // current ones in a bare `<uuid>`. Identify a session by its artifact, not
+      // by the directory name.
+      if (!session.isDirectory()) continue
+      const candidates = []
+      for (const name of await readdir(join(projectDir, session.name)).catch(() => [])) {
+        const parsed = parseSessionFileName(name)
+        if (parsed) candidates.push({ name, ...parsed })
       }
+      if (candidates.length === 0) continue
+      candidates.sort((a, b) => b.version - a.version || Number(b.compressed) - Number(a.compressed))
+      const chosen = candidates[0]
+      const file = join(projectDir, session.name, chosen.name)
+      const info = await stat(file).catch(() => null)
+      if (!info?.isFile()) continue
+      files.push({ file, corpus: project.name, sessionDir: session.name, version: chosen.version, mtimeMs: info.mtimeMs })
     }
   }
   return files.sort((a, b) => a.mtimeMs - b.mtimeMs)
@@ -57,6 +78,9 @@ export async function readSession(file) {
     cwd: header.cwd ?? null,
     agentPreset: header.agentPreset ?? null,
     createdAt: header.createdAt ?? null,
+    origin: header.origin ?? 'root',
+    delegationDepth: header.delegationDepth ?? 0,
+    formatVersion: header.version ?? 0,
     events,
   }
 }
@@ -255,6 +279,9 @@ export function buildDigest(session, file) {
     project: session.cwd ? session.cwd.split('/').filter(Boolean).slice(-1)[0] : null,
     projectRoot: session.cwd,
     agentPreset: session.agentPreset,
+    origin: session.origin ?? 'root',
+    delegationDepth: session.delegationDepth ?? 0,
+    formatVersion: session.formatVersion ?? 0,
     startedAt: session.createdAt ? new Date(session.createdAt).toISOString() : null,
     metrics,
     moments,

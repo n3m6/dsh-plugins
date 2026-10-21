@@ -10,11 +10,11 @@
   "target": "/home/n3m6/.dsh",
   "signature": "edit:FsError/FS_NOT_OBSERVED",
   "baseline": {
-    "corpusSessions": 46,
-    "sessions": 25,
-    "hits": 110,
-    "hitsPerSession": 2.391304347826087,
-    "sessionsPerHit": 0.22727272727272727
+    "corpusSessions": 183,
+    "sessions": 75,
+    "hits": 232,
+    "hitsPerSession": 1.2677595628415301,
+    "sessionsPerHit": 0.3232758620689655
   },
   "evidence": [
     "21 sessions across 15 projects",
@@ -43,6 +43,22 @@
         "hitsPerSession": 0.8478260869565217,
         "sessionsPerHit": 0.5384615384615384
       }
+    },
+    {
+      "at": "2026-10-21T04:53:43.885Z",
+      "reason": "session discovery matched one filename pattern and skipped v3/v4 artifacts and UUID directories; the baseline was measured on 46 of 187 sessions",
+      "baseline": {
+        "corpusSessions": 46,
+        "sessions": 25,
+        "hits": 110,
+        "hitsPerSession": 2.391304347826087,
+        "sessionsPerHit": 0.22727272727272727
+      }
     }
-  ]
+  ],
+  "baselineAsOf": "2026-10-21T04:16:55.122Z",
+  "baselineCorpus": {
+    "sessions": 183,
+    "after": 4
+  }
 }

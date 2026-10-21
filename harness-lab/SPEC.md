@@ -103,10 +103,17 @@ Classify every proposal before writing it:
 
 ## 6. Signals
 
-Deterministic digest from the session log
-(`~/.dsh/sessions/<cwd>/session-*/session.jsonl.zstd`, records of
-`{type, seq, time, data}`; decompress with zstd, or read via
-`ctx.sessionQuery.observeSession`). The session header carries `cwd`,
+Deterministic digest from the session log under
+`~/.dsh/sessions/<project>/`: records of `{type, seq, time, data}`, decompressed
+with zstd, or read via `ctx.sessionQuery.observeSession`.
+
+Discovery is not a fixed path. Artifact names carry a format version
+(`session.jsonl.zstd`, `session.v3.jsonl.zstd`, `session.v4.jsonl.zstd`) and the
+per-session directory is `session-<uuid>` in older layouts and a bare `<uuid>` in
+current ones, so the digest takes the newest artifact in every session directory
+whatever the two are called. Reading one literal filename reads only the oldest
+format still on disk, which is how a two-month-stale corpus once passed for a
+current one. The session header carries `cwd`,
 `agentPreset`, `delegationDepth`.
 
 Per session, compute a **vector**, not a scalar:
@@ -249,8 +256,9 @@ over the window, per project and globally.
 **When the corpus records no `skill` invocations at all, prune and demote are
 suppressed.** A tool that was never called is not evidence that every skill is
 dead, and a report that flags all of them is worse than a report that says
-nothing. The audit names the condition in its notes instead. This was not a
-hypothesis: the first real corpus (46 sessions) contains zero `skill` calls.
+nothing. The audit names the condition in its notes instead. The condition is real but rare: the
+corpus has `skill` calls, and the first measurement that reported zero was a
+discovery bug — see §6 and the note on versioned session artifacts.
 
 ### Prune
 A skill is a prune candidate when all hold: not invoked in 90 days; created more
