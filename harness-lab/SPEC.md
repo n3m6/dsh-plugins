@@ -128,6 +128,13 @@ Per session, compute a **vector**, not a scalar:
 | `tokens` | `ctx.tokenMeter.measure(session)` | cost |
 | `wallMs` | `turn/end.time − turn/start.time` | latency |
 
+Each session also carries a **signature histogram** — every occurrence of every
+signature, not just the three displayed moments. Rates and clustering read the
+histogram; the capped moment list exists only for display. Capping the stored
+moments instead would make every count a lower bound and rank a shallow-wide
+signature above a deep-narrow one, which is exactly the bug the first review
+found.
+
 Explicitly **no composite score.** A weighted sum invites optimizing the weight.
 Each proposal names the one dimension it targets, and adoption requires that
 dimension to improve without another regressing beyond a floor.
@@ -251,10 +258,11 @@ than 60 days ago; not referenced by another skill or an AGENTS.md section — an
 the corpus recorded at least one `skill` invocation, per the suppression rule
 above.
 
-Pruning **archives, never deletes**: move to `archive/skills/<name>/`, keep the
-entry in `index.json` with `state: archived`. Restore is a move back. Pruning is
-also the only class that removes capability, so it never auto-applies, regardless
-of signal.
+Pruning **archives, never deletes**: move to `archive/skills/<name>/`, which is
+its own record — restore is a move back. At this scale there is no generated
+index; the archive tree plus `EXPERIENCE.md` is the index. Pruning is also the
+only class that removes capability, so it never auto-applies, regardless of
+signal.
 
 AGENTS.md cannot be pruned section-by-section — a section has no firing rate and
 no individual attribution. So the monthly AGENTS.md pass is **compression**: merge
@@ -291,7 +299,6 @@ layer honest as your work shifts. Same rule: one edit set, both sides.
 ```
 harness-lab/
   SPEC.md
-  index.json                 # id → scope, path, state (active|archived), adopted-at
   digests/<session>.json
   proposals/<id>.edits.json
   runs/<run-id>.json         # digested count, verdict, metrics, pairing verdict

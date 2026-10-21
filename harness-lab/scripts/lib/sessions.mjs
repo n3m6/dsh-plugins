@@ -9,6 +9,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { decompressSessionLog } from './zstd.mjs'
+import { signatureOf } from './signatures.mjs'
 
 export const SESSIONS_ROOT = process.env.DSH_SESSIONS_DIR ?? join(homedir(), '.dsh', 'sessions')
 
@@ -106,6 +107,8 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
     presented: false,
     writeFailures: 0,
     skillInvocations: {},
+    /** Every signature occurrence in this session, not just the displayed moments. */
+    signatures: {},
     toolsByName: {},
     errorsByClass: {},
     tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0 },
@@ -114,6 +117,20 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
   }
 
   const moments = []
+  const signatureCounts = new Map()
+  /**
+   * Record one friction occurrence.
+   *
+   * The moment list is capped for display, but the histogram is not: clustering
+   * and every before/after rate read `metrics.signatures`, so capping it would
+   * silently make each count a lower bound and rank a shallow-wide signature
+   * above a deep-narrow one.
+   */
+  const record = (moment) => {
+    const key = signatureOf(moment)
+    signatureCounts.set(key, (signatureCounts.get(key) ?? 0) + 1)
+    moments.push(moment)
+  }
   const callById = new Map()
   let previousKey = null
   let repeats = 0
@@ -140,11 +157,13 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
       metrics.steps += 1
       continue
     }
-    if (event.type === 'compaction/start' || event.type === 'compaction/end') {
-      if (event.type === 'compaction/start') metrics.compactions += 1
-      moments.push({ kind: 'compaction', step, tool: null, error: null, snippet: '', at: event.time ?? null })
+    if (event.type === 'compaction/start') {
+      // One occurrence per compaction, not one per boundary event.
+      metrics.compactions += 1
+      record({ kind: 'compaction', step, tool: null, error: null, snippet: '', at: event.time ?? null })
       continue
     }
+    if (event.type === 'compaction/end') continue
     if (event.type.startsWith('approval/') && event.type !== 'approval/policy') {
       metrics.approvals += 1
       continue
@@ -172,7 +191,7 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
       callById.set(event.data?.callId, { name, args, step })
       if (previousKey === key) {
         repeats += 1
-        moments.push({
+        record({
           kind: 'repeat',
           step,
           tool: name,
@@ -202,7 +221,7 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
         metrics.errorsByClass[errorClass] = (metrics.errorsByClass[errorClass] ?? 0) + 1
         if (WRITE_TOOLS.has(name)) metrics.writeFailures += 1
         lastError = { name, step: call?.step ?? step }
-        moments.push({
+        record({
           kind: 'error',
           step: call?.step ?? step,
           tool: name,
@@ -214,6 +233,7 @@ export function computeMetrics(session, { maxMoments = 3 } = {}) {
     }
   }
 
+  metrics.signatures = Object.fromEntries([...signatureCounts].sort(([a], [b]) => a.localeCompare(b)))
   metrics.repeatRate = metrics.toolCalls ? repeats / metrics.toolCalls : 0
   metrics.retryRate = metrics.toolCalls ? retries / metrics.toolCalls : 0
 

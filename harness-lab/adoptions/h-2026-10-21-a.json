@@ -11,10 +11,10 @@
   "signature": "edit:FsError/FS_NOT_OBSERVED",
   "baseline": {
     "corpusSessions": 46,
-    "sessions": 21,
-    "hits": 39,
-    "hitsPerSession": 0.8478260869565217,
-    "sessionsPerHit": 0.5384615384615384
+    "sessions": 25,
+    "hits": 110,
+    "hitsPerSession": 2.391304347826087,
+    "sessionsPerHit": 0.22727272727272727
   },
   "evidence": [
     "21 sessions across 15 projects",
@@ -31,5 +31,18 @@
       "afterHash": "f87417c342a01eda"
     }
   ],
-  "revertedAt": null
+  "revertedAt": null,
+  "baselineHistory": [
+    {
+      "at": "2026-10-21T04:32:58.804Z",
+      "reason": "digest capped stored moments at three per session, so the frozen baseline undercounted occurrences",
+      "baseline": {
+        "corpusSessions": 46,
+        "sessions": 21,
+        "hits": 39,
+        "hitsPerSession": 0.8478260869565217,
+        "sessionsPerHit": 0.5384615384615384
+      }
+    }
+  ]
 }

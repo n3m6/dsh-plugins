@@ -11,7 +11,7 @@
  */
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { signatureOf } from './signatures.mjs'
+import { signatureCounts } from './signatures.mjs'
 
 /**
  * Count one signature across digests.
@@ -38,10 +38,7 @@ export function measureSignature(digests, signature) {
   let sessions = 0
   let hits = 0
   for (const digest of digests) {
-    let seen = 0
-    for (const moment of digest.moments ?? []) {
-      if (signatureOf(moment) === signature) seen += 1
-    }
+    const seen = signatureCounts(digest)[signature] ?? 0
     if (seen > 0) {
       sessions += 1
       hits += seen

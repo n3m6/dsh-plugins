@@ -29,7 +29,6 @@ export const paths = {
   adoptions: join(LAB, 'adoptions'),
   runs: join(LAB, 'runs'),
   archive: join(LAB, 'archive'),
-  index: join(LAB, 'index.json'),
   signatures: join(LAB, 'signatures.json'),
   experience: join(LAB, 'EXPERIENCE.md'),
   rejections: join(LAB, 'rejections.json'),

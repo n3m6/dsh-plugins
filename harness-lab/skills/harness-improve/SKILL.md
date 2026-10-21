@@ -57,6 +57,12 @@ which tools touched the same file earlier, and what ran immediately before. The
 `touched since last write` line is the one that usually explains the mechanism —
 a call only counts after the last write, because a write ends the epoch.
 
+Before writing anything, check the lever is live. Run `node "$HL" audit`. If it
+reports that the `skill` tool was never invoked in the corpus, a new skill will
+not be read either — the surface is inert, and shipping one is worse than
+shipping nothing because it looks like progress. Explain why skills are invisible
+(discovery root, trigger wording) or propose an AGENTS.md edit instead.
+
 Then classify:
 
 - **Knowledge gap** — did not know how. → a skill.

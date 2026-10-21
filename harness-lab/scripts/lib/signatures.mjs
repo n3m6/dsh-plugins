@@ -6,6 +6,35 @@
  * accumulates evidence across projects, and what a rejection is keyed to.
  */
 
+/** Split a signature key back into its parts. */
+export function parseSignature(key) {
+  if (key === 'compaction') return { kind: 'compaction', tool: null, error: null }
+  const at = key.indexOf(':')
+  if (at === -1) return { kind: 'error', tool: key, error: null }
+  const head = key.slice(0, at)
+  const tail = key.slice(at + 1)
+  if (head === 'repeat') return { kind: 'repeat', tool: tail, error: null }
+  return { kind: 'error', tool: head, error: tail }
+}
+
+/**
+ * Every occurrence of every signature in one digest.
+ *
+ * `metrics.signatures` is the whole-session histogram. Digests written before
+ * that field existed carry only the three display moments, so they fall back to
+ * those and stay readable at the cost of being a lower bound.
+ */
+export function signatureCounts(digest) {
+  const histogram = digest.metrics?.signatures
+  if (histogram && Object.keys(histogram).length > 0) return histogram
+  const counts = {}
+  for (const moment of digest.moments ?? []) {
+    const key = signatureOf(moment)
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return counts
+}
+
 export function signatureOf(moment) {
   if (moment.kind === 'error') return `${moment.tool}:${moment.error}`
   if (moment.kind === 'repeat') return `repeat:${moment.tool}`
@@ -21,13 +50,13 @@ export function collectSignatures(digests) {
   const map = new Map()
   for (const digest of digests) {
     const project = digest.project ?? '(unknown)'
-    for (const moment of digest.moments ?? []) {
-      const key = signatureOf(moment)
+    for (const [key, count] of Object.entries(signatureCounts(digest))) {
+      const { kind, tool, error } = parseSignature(key)
       const entry = map.get(key) ?? {
         key,
-        kind: moment.kind,
-        tool: moment.tool,
-        error: moment.error,
+        kind,
+        tool,
+        error,
         sessions: new Set(),
         projects: new Set(),
         count: 0,
@@ -36,11 +65,12 @@ export function collectSignatures(digests) {
       }
       entry.sessions.add(digest.sessionId)
       entry.projects.add(project)
-      entry.count += 1
-      const at = moment.at ?? digest.startedAt
+      entry.count += count
+      const at = digest.startedAt
       if (at && (!entry.lastSeen || at > entry.lastSeen)) entry.lastSeen = at
-      if (moment.snippet && entry.samples.length < 2 && !entry.samples.includes(moment.snippet)) {
-        entry.samples.push(moment.snippet)
+      if (entry.samples.length < 2) {
+        const moment = (digest.moments ?? []).find((item) => signatureOf(item) === key)
+        if (moment?.snippet && !entry.samples.includes(moment.snippet)) entry.samples.push(moment.snippet)
       }
       map.set(key, entry)
     }

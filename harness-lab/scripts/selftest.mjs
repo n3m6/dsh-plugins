@@ -17,7 +17,8 @@ import { lstat, mkdir, rm, rmdir, utimes, writeFile, readFile } from 'node:fs/pr
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { selectCandidates } from './lib/signatures.mjs'
+import { collectSignatures, selectCandidates } from './lib/signatures.mjs'
+import { measureSignature } from './lib/measure.mjs'
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url))
 const CODE_ROOT = dirname(SCRIPTS)
@@ -164,6 +165,49 @@ async function caseApplier() {
   run('apply-edits.mjs', ['--revert', 't-applier'], lab)
   assert((await readFile(join(project, 'AGENTS.md'), 'utf8')) === original, 'revert did not restore AGENTS.md')
   assert(!(await exists(join(project, '.dsh/skills/selftest-skill'))), 'revert left the created skill behind')
+}
+
+/**
+ * A capped moment list must not become a capped count.
+ *
+ * The first implementation stored three moments per session and clustered those,
+ * so a signature with 110 occurrences was reported as 39. Digests now carry a
+ * whole-session histogram; this pins both the histogram path and the fallback
+ * for digests written before the field existed.
+ */
+async function caseHistogram() {
+  const signature = 'edit:FsError/FS_NOT_OBSERVED'
+  const moment = { kind: 'error', step: 1, tool: 'edit', error: 'FsError/FS_NOT_OBSERVED', snippet: 'x', at: null }
+  const withHistogram = {
+    sessionId: 'h1',
+    project: 'proj',
+    startedAt: daysAgo(3),
+    metrics: { signatures: { [signature]: 5, 'repeat:bash': 2 } },
+    moments: [moment],
+  }
+  const legacy = {
+    sessionId: 'h2',
+    project: 'proj',
+    startedAt: daysAgo(2),
+    metrics: {},
+    moments: [moment, moment, moment],
+  }
+
+  const dense = collectSignatures([withHistogram]).find((entry) => entry.key === signature)
+  assert(dense, 'histogram: signature missing from the cluster')
+  assert(dense.count === 5, `histogram: expected 5 occurrences, got ${dense.count}`)
+  assert(dense.sessions.length === 1, 'histogram: session not counted')
+
+  const fallback = collectSignatures([legacy]).find((entry) => entry.key === signature)
+  assert(fallback?.count === 3, `histogram: legacy fallback expected 3, got ${fallback?.count}`)
+
+  const rate = measureSignature([withHistogram, legacy], signature)
+  assert(rate.hits === 8, `histogram: expected 8 hits across both digests, got ${rate.hits}`)
+  assert(rate.sessions === 2, `histogram: expected 2 sessions, got ${rate.sessions}`)
+  assert(rate.hitsPerSession === 4, `histogram: expected 4 hits/session, got ${rate.hitsPerSession}`)
+
+  const repeat = measureSignature([withHistogram, legacy], 'repeat:bash')
+  assert(repeat.hits === 2 && repeat.sessions === 1, 'histogram: non-error family miscounted')
 }
 
 async function caseRejection() {
@@ -509,6 +553,7 @@ async function main() {
   await mkdir(RUN, { recursive: true })
   try {
     await caseApplier()
+    await caseHistogram()
     await caseRejection()
     await caseWatchPending()
     await caseWatchKept()
@@ -524,7 +569,7 @@ async function main() {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  12 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
+  return `PASS  13 cases: applier round-trip, signature rule, histogram, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
 }
 
 try {
