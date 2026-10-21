@@ -32,9 +32,22 @@ or `compaction` (context pressure). The bar is reach, not severity:
 **No candidate is a valid result.** Say so and stop. Do not invent work to have
 something to report.
 
-## Decide before proposing
+## Get evidence before proposing
 
-Read the candidate's sample moments. Classify it:
+A two-line sample from the digest is not enough to explain a signature. Read
+what actually happened around every occurrence:
+
+```bash
+node scripts/evidence.mjs --signature edit:FsError/FS_NOT_OBSERVED
+node scripts/evidence.mjs --signature repeat:bash --context 5 --limit 10
+```
+
+It prints the calls before each occurrence and an aggregate over all of them:
+which tools touched the same file earlier, and what ran immediately before. The
+`touched since last write` line is the one that usually explains the mechanism —
+a call only counts after the last write, because a write ends the epoch.
+
+Then classify:
 
 - **Knowledge gap** — did not know how. → a skill.
 - **Procedure gap** — knew how, skipped a step. → an AGENTS.md section.

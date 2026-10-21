@@ -69,7 +69,7 @@ function parseArguments(raw) {
   }
 }
 
-function resultText(event) {
+export function resultText(event) {
   const content = event.data?.message?.content
   if (!Array.isArray(content)) return ''
   const parts = []

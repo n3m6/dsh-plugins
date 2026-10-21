@@ -11,6 +11,7 @@ Design and rationale: [SPEC.md](SPEC.md).
 ```bash
 node scripts/digest.mjs                       # what recurs, across every project
 node scripts/digest.mjs --project ~/work/x    # what recurs in one project
+node scripts/evidence.mjs --signature <key>   # what happens around each occurrence
 node scripts/apply-edits.mjs --set proposals/<id>.edits.json           # dry run
 node scripts/apply-edits.mjs --set proposals/<id>.edits.json --write   # apply
 node scripts/apply-edits.mjs --revert <id>                            # undo
@@ -48,9 +49,10 @@ A review that finds nothing is a success and records `verdict: quiet`.
 | `skills/harness-improve/SKILL.md` | the agent-facing instructions; symlink into `~/.agents/skills/` to make it discoverable everywhere |
 | `scripts/digest.mjs` | session logs → metrics, moments, signatures |
 | `scripts/apply-edits.mjs` | validate → diff → backup → apply → revert, plus `--reject` / `--unreject` |
+| `scripts/evidence.mjs` | the calls around every occurrence of a signature, plus an aggregate over all of them |
 | `scripts/watch.mjs` | re-measures each adoption and resolves it |
 | `scripts/status.mjs` | adoptions, active rejections, and drift, in one report |
-| `scripts/selftest.mjs` | six end-to-end cases in a throwaway lab; never touches your records |
+| `scripts/selftest.mjs` | eight end-to-end cases in a throwaway lab; never touches your records |
 | `scripts/lib/` | session parsing, metrics, clustering, diffing, rate measurement |
 | `scripts/lib/measure.mjs` | the definition of "the rate", its before/after comparison, and the verdict band |
 | `proposals/` | edit sets you are considering |

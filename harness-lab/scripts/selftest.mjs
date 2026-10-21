@@ -83,11 +83,11 @@ async function appendExperience(lab, id, extra = '') {
 }
 
 /** Run one lab script against a throwaway lab. */
-function run(script, args, lab, { expect = 0 } = {}) {
+function run(script, args, lab, { expect = 0, env = {} } = {}) {
   const result = spawnSync(process.execPath, [join(SCRIPTS, script), ...args], {
     cwd: lab,
     encoding: 'utf8',
-    env: { ...process.env, HARNESS_LAB_DIR: lab },
+    env: { ...process.env, HARNESS_LAB_DIR: lab, ...env },
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
   if (expect !== null && result.status !== expect) {
@@ -268,6 +268,71 @@ async function caseWatchInconclusive() {
   assert(lines[0].includes('**kept**') && !lines[0].includes('**inconclusive**'), 'the provisional marker was not replaced')
 }
 
+async function caseEvidence() {
+  const lab = await makeLab('evidence')
+  const sessions = join(RUN, 'evidence', 'sessions')
+  const project = '/fixture/repo'
+  const result = (callId, error) => ({
+    type: 'tool/result',
+    data: {
+      turn: 1,
+      step: 1,
+      ...(error ? { error } : {}),
+      message: {
+        source: { kind: 'tool', callId },
+        content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: error ? 'Error: cannot edit foo.md without reading it first' : 'ok' }] }],
+      },
+    },
+  })
+  const call = (callId, name, args) => ({ type: 'tool/call', data: { turn: 1, step: 1, callId, name, arguments: JSON.stringify(args) } })
+  const line = (value) => JSON.stringify(value)
+
+  // Session A: bash sees the file, then the edit fails — the pattern to surface.
+  await write(join(sessions, 'corpus-a', 'session-aaaa', 'session.jsonl'), [
+    line({ type: 'session', id: 'session-aaaa', cwd: project, agentPreset: 'standard' }),
+    line(call('c1', 'bash', { command: 'cat foo.md' })),
+    line(result('c1')),
+    line(call('c2', 'edit', { file_path: 'foo.md' })),
+    line(result('c2', { name: 'FsError', code: 'FS_NOT_OBSERVED' })),
+    line(call('c3', 'bash', { command: 'ls' })),
+    line(result('c3')),
+    line(call('c4', 'bash', { command: 'ls' })),
+    line(result('c4')),
+    line({ type: 'compaction/start', data: {} }),
+  ].join('\n'))
+
+  // Session B: a successful read then an unrelated edit — no occurrence.
+  await write(join(sessions, 'corpus-b', 'session-bbbb', 'session.jsonl'), [
+    line({ type: 'session', id: 'session-bbbb', cwd: project, agentPreset: 'standard' }),
+    line(call('d1', 'read', { file_path: 'bar.md' })),
+    line(result('d1')),
+    line(call('d2', 'edit', { file_path: 'bar.md' })),
+    line(result('d2')),
+  ].join('\n'))
+
+  const env = { DSH_SESSIONS_DIR: sessions }
+  const error = JSON.parse(run('evidence.mjs', ['--signature', SIGNATURE, '--json'], lab, { env }).output)
+  assert(error.occurrences === 1, `error occurrences is ${error.occurrences}, expected 1`)
+  assert(error.touchedBy.bash === 1, `bash touch count is ${error.touchedBy.bash}, expected 1`)
+  assert(!error.touchedBy.read, `a read was counted as touching the target: ${error.touchedBy.read}`)
+  assert(error.immediatelyBefore.bash === 1, 'the call before the failure was not recorded as bash')
+  assert(error.samples[0].before.length === 1, 'the sample did not keep the configured context')
+
+  const repeat = JSON.parse(run('evidence.mjs', ['--signature', 'repeat:bash', '--json'], lab, { env }).output)
+  assert(repeat.occurrences === 1, `repeat occurrences is ${repeat.occurrences}, expected 1`)
+
+  const compaction = JSON.parse(run('evidence.mjs', ['--signature', 'compaction', '--json'], lab, { env }).output)
+  assert(compaction.occurrences === 1, `compaction occurrences is ${compaction.occurrences}, expected 1`)
+
+  const first = run('evidence.mjs', ['--signature', SIGNATURE, '--json'], lab, { env }).output
+  const second = run('evidence.mjs', ['--signature', SIGNATURE, '--json'], lab, { env }).output
+  assert(first === second, 'evidence --json output is not stable across runs')
+
+  const text = run('evidence.mjs', ['--signature', SIGNATURE], lab, { env }).output
+  assert(/touched since last write/.test(text), 'the aggregate line is missing from the text report')
+  assert(/bash 1 /.test(text), 'the text report does not show the bash count')
+}
+
 async function caseStatus() {
   const lab = await makeLab('status')
   const project = join(lab, 'project')
@@ -297,12 +362,13 @@ async function main() {
     await caseWatchKept()
     await caseWatchReverted()
     await caseWatchInconclusive()
+    await caseEvidence()
     await caseStatus()
   } finally {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  7 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, status drift`
+  return `PASS  8 cases: applier round-trip, signature rule, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift`
 }
 
 try {

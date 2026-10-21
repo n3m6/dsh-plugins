@@ -206,7 +206,8 @@ Cheap, no probes, no isolation. This is the loop that runs forever.
    skill/AGENTS.md section that was loaded). Apply the §7 evidence bar and the
    §8 cooldown.
 3. **Propose.** At most the cap in §7, each classified per §5, each citing the
-   sessions that support it, each naming one dimension.
+   sessions that support it, each naming one dimension, and each grounded in
+   `scripts/evidence.mjs` rather than in the digest's three-moment sample.
 4. **Approve.** You read diffs. Nothing is applied without a yes.
 5. **Apply.** Write the files, commit, append to `EXPERIENCE.md`.
 6. **Watch.** Track the signature for N sessions; `kept` or `reverted`.
