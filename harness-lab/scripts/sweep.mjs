@@ -147,7 +147,7 @@ async function main() {
   const lines = [
     `# Harness sweep — ${today}`,
     '',
-    `Window ${args.since}d · corpus ${record?.totals?.sessions ?? '?'} session(s) · audit ${monthly ? 'ran' : 'skipped'}`,
+    `Window ${args.since}d · ${record?.totals?.sessions ?? '?'} session(s) in window · audit ${monthly ? 'ran' : 'skipped'}`,
     '',
     '## Attention',
     '',
