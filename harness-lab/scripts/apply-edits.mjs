@@ -27,8 +27,11 @@ import {
   writeJson,
   writeText,
 } from './lib/lab.mjs'
+import { loadDigests, measureSignature } from './lib/measure.mjs'
 
 const OPS = new Set(['create', 'replace', 'append-section', 'replace-section', 'delete', 'move'])
+/** Kinds that name the friction they address; the rest may omit a signature. */
+const SIGNATURE_KINDS = new Set(['add', 'promote', 'demote'])
 const DENY_SEGMENTS = new Set(['.git', 'node_modules', 'profiles', 'backups'])
 const DENY_NAMES = new Set(['settings.yaml', '.credentials.yaml', 'credentials.yaml', '.env'])
 
@@ -108,6 +111,32 @@ function applyOp(op, before, edit, content) {
   throw new Error(`unsupported op: ${op}`)
 }
 
+/**
+ * Validate the signature an edit set targets.
+ *
+ * A signature is the friction key the digest clusters on — `tool:ErrorClass`,
+ * `repeat:tool`, or `compaction`. It is required when the set adds capability
+ * (there is then a rate to move) and optional for sets that only prune,
+ * compress, or move, which have no single signature to attribute.
+ * @returns the trimmed signature, or null when the set does not name one
+ */
+function signatureOfSet(raw) {
+  const signature = raw.signature
+  if (signature === undefined || signature === null) {
+    if (SIGNATURE_KINDS.has(raw.kind)) {
+      throw new Error(`edit set of kind "${raw.kind}" needs a signature`)
+    }
+    return null
+  }
+  if (typeof signature !== 'string' || signature.trim() === '') {
+    throw new Error('signature must be a non-empty string')
+  }
+  const trimmed = signature.trim()
+  if (/\s/.test(trimmed)) throw new Error(`signature must not contain whitespace: ${signature}`)
+  if (trimmed.length > 200) throw new Error('signature is longer than 200 characters')
+  return trimmed
+}
+
 async function plan(setPath) {
   const raw = JSON.parse(await readFile(setPath, 'utf8'))
   const setDir = dirname(resolve(setPath))
@@ -115,6 +144,12 @@ async function plan(setPath) {
   if (!raw.id) throw new Error('edit set needs an id')
   if (!Array.isArray(raw.edits) || raw.edits.length === 0) throw new Error('edit set has no edits')
   if (raw.edits.length > 12) throw new Error('edit set exceeds 12 edits')
+  const signature = signatureOfSet(raw)
+
+  // Freeze the rate this edit is judged by, before it can affect anything. No
+  // digests means "not measured yet", which stays null rather than becoming 0.
+  const digests = signature ? await loadDigests(paths.digests) : []
+  const baseline = signature && digests.length > 0 ? measureSignature(digests, signature) : null
 
   const original = new Map() // path -> content before the set touched it (null when absent)
   const working = new Map() // path -> content as of the latest edit
@@ -166,14 +201,20 @@ async function plan(setPath) {
     original: original.get(file) ?? null,
     final,
   }))
-  return { raw, target, steps, files }
+  return { raw, target, signature, baseline, steps, files }
 }
 
-function describe(set, steps) {
+function describe(set, steps, baseline) {
   console.log(`\nHarness Lab — edit set ${set.id}`)
   console.log(`  scope     ${set.scope ?? '(unset)'}   kind ${set.kind ?? '(unset)'}   class ${set.class ?? '(unset)'}`)
   console.log(`  target    ${set.target ?? '(home)'}`)
   console.log(`  dimension ${set.dimension ?? '(unset)'}`)
+  if (set.signature) console.log(`  signature ${set.signature}`)
+  if (baseline) {
+    console.log(`  baseline  ${baseline.sessions} session(s), ${baseline.hits} hit(s) across the current digests`)
+  } else if (set.signature) {
+    console.log('  baseline  none — no digests yet, this adoption cannot be measured until one runs')
+  }
   if (set.evidence) console.log(`  evidence  ${[].concat(set.evidence).join(', ')}`)
   for (const step of steps) {
     const label =
@@ -196,7 +237,7 @@ function describe(set, steps) {
   }
 }
 
-async function writePlan(set, steps, files) {
+async function writePlan(set, steps, files, signature, baseline) {
   const adoptionId = set.id
   const adoptionPath = join(paths.adoptions, `${adoptionId}.json`)
   const prior = await readJson(adoptionPath, null)
@@ -208,6 +249,8 @@ async function writePlan(set, steps, files) {
     at: nowIso(),
     set: { kind: set.kind, scope: set.scope, class: set.class, dimension: set.dimension },
     target: set.target ?? null,
+    signature,
+    baseline,
     evidence: [].concat(set.evidence ?? []),
     rationale: set.rationale ?? null,
     files: [],
@@ -237,9 +280,17 @@ async function writePlan(set, steps, files) {
 }
 
 async function appendExperience(set, count) {
-  const line = `- ${nowIso().slice(0, 10)} · \`${set.id}\` · ${set.kind ?? 'add'} · ${set.scope ?? 'project'} · dimension \`${set.dimension ?? 'unset'}\` · ${count} file(s) · **pending** — ${(set.rationale ?? '').split('\n')[0].trim()}`
+  const parts = [
+    `- ${nowIso().slice(0, 10)}`,
+    `\`${set.id}\``,
+    set.kind ?? 'add',
+    set.scope ?? 'project',
+    `dimension \`${set.dimension ?? 'unset'}\``,
+  ]
+  if (set.signature) parts.push(`signature \`${set.signature}\``)
+  parts.push(`${count} file(s)`, `**pending** — ${(set.rationale ?? '').split('\n')[0].trim()}`)
   const existing = (await readText(paths.experience)) ?? '# Experience\n\nAppend-only record of what the harness lab tried and what happened.\n'
-  await writeText(paths.experience, `${existing.trimEnd()}\n${line}\n`)
+  await writeText(paths.experience, `${existing.trimEnd()}\n${parts.join(' · ')}\n`)
 }
 
 async function revert(id) {
@@ -275,14 +326,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.revert) return revert(args.revert)
 
-  const { raw, steps, files } = await plan(args.set)
-  describe(raw, steps)
+  const { raw, steps, files, signature, baseline } = await plan(args.set)
+  describe(raw, steps, baseline)
   if (!args.write) {
     console.log('\n  dry run — nothing written. Re-run with --write to apply.\n')
     return
   }
   try {
-    const record = await writePlan(raw, steps, files)
+    const record = await writePlan(raw, steps, files, signature, baseline)
     console.log(`\n  applied ${record.id} (${record.files.length} files), backups in backups/${record.id}/\n`)
   } catch (error) {
     if (error.code === 'EACCES' || error.code === 'EPERM') {

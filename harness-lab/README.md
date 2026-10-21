@@ -42,13 +42,22 @@ A review that finds nothing is a success and records `verdict: quiet`.
 | `skills/harness-improve/SKILL.md` | the agent-facing instructions; symlink into `~/.agents/skills/` to make it discoverable everywhere |
 | `scripts/digest.mjs` | session logs → metrics, moments, signatures |
 | `scripts/apply-edits.mjs` | validate → diff → backup → apply → revert |
+| `scripts/selftest.mjs` | end-to-end applier check: create → append → write → revert |
 | `scripts/lib/` | session parsing, metrics, clustering, diffing |
+| `scripts/lib/measure.mjs` | a signature's rate over the digests: the baseline frozen at apply time, and the definition a later comparison reuses |
 | `proposals/` | edit sets you are considering |
 | `adoptions/` | applied sets with before/after hashes — the audit trail |
 | `backups/<id>/` | the previous content of every touched file |
 | `runs/` | one record per digest, including quiet ones |
 | `rejections.json` | signatures you turned down, with a cooldown |
 | `EXPERIENCE.md` | append-only log of what was tried and what happened |
+
+An edit set of kind `add`, `promote`, or `demote` names the friction `signature`
+it targets (`prune`, `compress`, and `move` sets may omit it), and
+`apply-edits.mjs` freezes that signature's rate over `digests/` into
+`adoptions/<id>.json` as `baseline` — `{sessions, hits, sessionsPerHit}`. With
+no digests yet the baseline is `null`, never zero: "not measured" and "measured
+as absent" must stay distinguishable.
 
 ## Design notes worth knowing before you extend it
 

@@ -60,6 +60,7 @@ dimension and cites real session ids. Write the proposal to
   "target": "/home/me/work/auth-service",
   "class": "knowledge",
   "dimension": "repeatRate",
+  "signature": "edit:FsError/FS_NOT_OBSERVED",
   "evidence": ["session-69603055", "session-1ea35fee"],
   "rationale": "Two sessions re-derived the same schema mapping by reading four files.",
   "edits": [
@@ -71,6 +72,11 @@ dimension and cites real session ids. Write the proposal to
   ]
 }
 ```
+
+`signature` is the signature key the digest clustered on, and it is required for
+`add`, `promote`, and `demote` (a `prune`- or `compress`-only set has no single
+signature to attribute). The applier records that signature's current rate as the
+adoption's baseline, which is what makes the result measurable later.
 
 `contentFile` is resolved next to the edit set and is the readable way to ship a
 whole file. Put large bodies there, not in a JSON string.

@@ -294,6 +294,7 @@ scale; add one only if the file passes ~200 entries.
   "target": "/home/n3m6/work/auth-service",
   "class": "knowledge",
   "dimension": "repeatRate",
+  "signature": "edit:FsError/FS_NOT_OBSERVED",
   "evidence": ["session-69603055", "session-1ea35fee"],
   "rationale": "Two sessions re-derived the same mapping by reading four files.",
   "edits": [
@@ -308,6 +309,14 @@ scale; add one only if the file passes ~200 entries.
 JSON rather than YAML so the applier runs with no dependencies; `contentFile`
 is resolved beside the edit set and keeps long bodies readable instead of
 escaped inside a string. Edits apply in order, so several may target one file.
+
+`signature` is the friction key the proposal addresses, written exactly as the
+digest clusters it (`tool:ErrorClass`, `repeat:tool`, or `compaction`). It is
+required when `kind` is `add`, `promote`, or `demote`, and may be omitted for
+`prune`, `compress`, and `move`-only sets. The applier validates it, records it
+in `adoptions/<id>.json`, and freezes that signature's rate over the current
+`digests/` as `baseline: {sessions, hits, sessionsPerHit}` — or `null` when no
+digests exist yet — so the adoption can be measured after the watch window.
 
 Allowed ops: `create`, `append-section`, `replace-section`, `delete`, `move`.
 Allowed files: `AGENTS.md`, `.dsh/skills/**`, `.agents/skills/**`,
