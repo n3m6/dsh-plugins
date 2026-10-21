@@ -1,0 +1,7 @@
+# Generated artifacts — regenerate with scripts/digest.mjs
+digests/
+runs/
+signatures.json
+arms/
+backups/
+.fixtures/
