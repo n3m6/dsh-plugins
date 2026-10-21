@@ -30,6 +30,8 @@ const COMMANDS = [
   { name: 'watch', script: 'watch.mjs', summary: 're-measure adoptions and resolve them' },
   { name: 'status', script: 'status.mjs', summary: 'adoptions, rejections, and drift in one screen' },
   { name: 'audit', script: 'audit.mjs', summary: 'monthly prune / promote / demote pass' },
+  { name: 'sweep', script: 'sweep.mjs', summary: 'unattended digest + watch + status, for cron' },
+  { name: 'cron', script: 'install-cron.mjs', summary: 'check, install, or remove the sweep crontab entry' },
   { name: 'selftest', script: 'selftest.mjs', summary: 'check the lab against a throwaway fixture' },
 ]
 

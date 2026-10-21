@@ -56,9 +56,22 @@ list in a fresh session's first prompt.
 | After a bad session | `node "$HL" digest --project <dir>` | one project, 2-session bar |
 | After any apply | `node "$HL" watch` | resolves open adoptions |
 | Monthly | `node "$HL" audit` | prune / promote / demote / compress |
+| Daily, cron | `node "$HL" sweep` | digest + watch + status, monthly audit, writes `reports/` |
 
 A week with nothing to propose is a normal outcome: the run records
 `verdict: quiet` and the loop stays silent.
+
+`sweep` is the unattended entry point: it runs digest, watch, and status,
+adds the monthly audit, writes `reports/<date>.md` and `reports/latest.md`, and
+exits 0 (nothing), 1 (read the report), or 2 (a step failed). It never applies
+anything — under cron there is no approval prompt, so the cron path is read-only
+by construction. Install the entry with:
+
+```bash
+node scripts/install-cron.mjs            # check
+node scripts/install-cron.mjs --install  # one marked block in your crontab
+node scripts/install-cron.mjs --remove
+```
 
 `audit --strict` exits 1 when it finds anything actionable, which is what a
 reminder or a cron job wants. It is a report and never edits anything: every
@@ -95,7 +108,9 @@ A review that finds nothing is a success and records `verdict: quiet`.
 | `scripts/evidence.mjs` | the calls around every occurrence of a signature, plus an aggregate over all of them |
 | `scripts/watch.mjs` | re-measures each adoption and resolves it |
 | `scripts/status.mjs` | adoptions, active rejections, and drift, in one report |
-| `scripts/selftest.mjs` | eleven end-to-end cases in a throwaway lab; never touches your records |
+| `scripts/sweep.mjs` | the cron entry point: digest + watch + status (+ monthly audit), writes `reports/` |
+| `scripts/install-cron.mjs` | check, install, or remove the sweep crontab entry |
+| `scripts/selftest.mjs` | fifteen end-to-end cases in a throwaway lab; never touches your records |
 | `scripts/lib/` | session parsing, metrics, clustering, diffing, rate measurement |
 | `scripts/lib/measure.mjs` | the definition of "the rate", its before/after comparison, and the verdict band |
 | `proposals/` | edit sets you are considering |

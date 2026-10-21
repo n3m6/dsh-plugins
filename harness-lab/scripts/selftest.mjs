@@ -219,6 +219,39 @@ async function caseHistogram() {
   assert(repeat.hits === 2 && repeat.sessions === 1, 'histogram: non-error family miscounted')
 }
 
+/**
+ * The sweep is the cron entry point, so its contract is: write a report, never
+ * write outside the lab, and never invent an orphan.
+ *
+ * The regression this pins: the first orphan detector matched the last quoted
+ * token on an EXPERIENCE line, so an adoption whose rationale mentioned
+ * `file_path` was reported as a dangling record every single day.
+ */
+async function caseSweep() {
+  const lab = await makeLab('sweep')
+  await writeDigest(lab, { id: 's1', startedAt: daysAgo(1), hits: 2 })
+  await writeAdoption(lab, {
+    id: 't-sweep',
+    at: daysAgo(9),
+    baseline: { corpusSessions: 40, sessions: 1, hits: 2, hitsPerSession: 0.05 },
+  })
+  await appendExperience(lab, 't-sweep', ' — quotes `path` and `file_path`')
+  const sessions = join(lab, 'empty-sessions')
+  await mkdir(sessions, { recursive: true })
+
+  const result = run('sweep.mjs', ['--since', '1', '--quiet'], lab, {
+    env: { DSH_SESSIONS_DIR: sessions },
+    expect: null,
+  })
+
+  const report = await readFile(join(lab, 'reports', 'latest.md'), 'utf8')
+  assert(report.includes('## digest'), 'sweep report has no digest section')
+  assert(report.includes('## status'), 'sweep report has no status section')
+  assert(report.includes('## Attention'), 'sweep report has no attention section')
+  assert(!report.includes('has no adoption record'), 'sweep called a real adoption an orphan')
+  assert([0, 1, 2].includes(result.status), `sweep exited ${result.status}`)
+}
+
 async function caseRejection() {
   const lab = await makeLab('rejection')
   run('apply-edits.mjs', ['--reject', SIGNATURE, '--reason', 'not worth it'], lab)
@@ -597,6 +630,7 @@ async function main() {
     await caseApplier()
     await caseHistogram()
     await caseSessionFormats()
+    await caseSweep()
     await caseRejection()
     await caseWatchPending()
     await caseWatchKept()
@@ -612,7 +646,7 @@ async function main() {
     await rm(RUN, { recursive: true, force: true })
     await rmdir(FIXTURES).catch(() => {})
   }
-  return `PASS  14 cases: applier round-trip, signature rule, histogram, session formats, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
+  return `PASS  15 cases: applier round-trip, signature rule, histogram, session formats, sweep, reject/unreject cooldown, watch pending/kept/reverted/inconclusive, evidence blocks/aggregate, status drift, dispatcher, audit rules, install, cwd independence`
 }
 
 try {
