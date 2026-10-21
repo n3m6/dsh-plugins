@@ -10,8 +10,10 @@
   "target": "/home/n3m6/.dsh",
   "signature": "edit:FsError/FS_NOT_OBSERVED",
   "baseline": {
+    "corpusSessions": 46,
     "sessions": 21,
     "hits": 39,
+    "hitsPerSession": 0.8478260869565217,
     "sessionsPerHit": 0.5384615384615384
   },
   "evidence": [

@@ -9,7 +9,17 @@ import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 
 // .../harness-lab/scripts/lib/lab.mjs -> harness-lab
-export const LAB = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+export const CODE_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
+
+/**
+ * Where this run keeps its state: digests, proposals, adoptions, backups.
+ *
+ * The code never moves, but the state can, so `HARNESS_LAB_DIR` points the same
+ * scripts at another directory. That is how the self-test runs against a
+ * throwaway lab instead of the user's real records, and how a second lab (a
+ * trial harness, a replay corpus) can reuse this code unmodified.
+ */
+export const LAB = resolve(process.env.HARNESS_LAB_DIR ?? CODE_ROOT)
 
 export const paths = {
   root: LAB,

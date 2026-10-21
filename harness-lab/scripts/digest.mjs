@@ -21,7 +21,7 @@ import {
   expandHome,
 } from './lib/lab.mjs'
 import { listSessionFiles, readSession, buildDigest } from './lib/sessions.mjs'
-import { collectSignatures, candidatesFor, activeRejections } from './lib/signatures.mjs'
+import { collectSignatures, selectCandidates } from './lib/signatures.mjs'
 
 function parseArgs(argv) {
   const args = { all: true, since: 30, json: false, project: null, session: null, limit: 40 }
@@ -81,9 +81,7 @@ async function main() {
   const mode = args.project ? 'project' : 'global'
   const signatures = collectSignatures(digests)
   const rejections = await readJson(paths.rejections, {})
-  const cooling = activeRejections(rejections)
-  const eligible = signatures.filter((entry) => !cooling.has(entry.key))
-  const candidates = candidatesFor(eligible, { mode }).slice(0, args.limit)
+  const { cooling, candidates } = selectCandidates(signatures, { mode, rejections, limit: args.limit })
 
   const totalCalls = digests.reduce((sum, d) => sum + d.metrics.toolCalls, 0)
   const totalErrors = digests.reduce((sum, d) => sum + d.metrics.toolErrors, 0)

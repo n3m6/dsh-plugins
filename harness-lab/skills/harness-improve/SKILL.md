@@ -104,6 +104,35 @@ node scripts/apply-edits.mjs --revert h-2026-10-21-a     # if it was a mistake
 If `--write` fails with a permission error, the target is outside the writable
 workspace. Ask for the escalation; do not try another path.
 
+## Close the loop
+
+An applied edit is not a result. Two commands decide:
+
+```bash
+node scripts/watch.mjs      # kept / reverted / inconclusive for every open adoption
+node scripts/status.mjs     # adoptions, active rejections, and drift
+```
+
+`watch.mjs` withholds a verdict until 10 sessions have started after the
+adoption or 14 days have passed, then rewrites that adoption's EXPERIENCE line
+in place. Run it at the start of every review, before proposing anything —
+an adoption that came back `reverted` is the most useful evidence you have.
+
+`status.mjs` always exits 0; read its **drift** section. Orphan EXPERIENCE
+lines, a file edited after the lab wrote it, or an adoption with no digests all
+mean the measurement is compromised, and none of them show up in the digest.
+
+## When the user says no
+
+```bash
+node scripts/apply-edits.mjs --reject <signature> --reason "one line why"
+node scripts/apply-edits.mjs --unreject <signature>   # to reopen it
+```
+
+A rejection silences that signature for 90 days in every later digest; without
+it the loop re-proposes the same thing next week and silence stops meaning
+anything.
+
 ## Monthly rebalancing
 
 Once a month, instead of (or in addition to) the sweep:
@@ -127,7 +156,8 @@ Once a month, instead of (or in addition to) the sweep:
 - Evidence is session ids that exist. Never cite a signature you did not digest.
 - The global layer (`~/.dsh/AGENTS.md`, `~/.agents/skills/**`) is never applied
   without the user explicitly approving that specific diff.
-- A rejected signature stays silent for 90 days. Record it in
-  `rejections.json`; do not re-propose it next week.
-- After applying, record `kept` or `reverted` in `EXPERIENCE.md` once the
-  signature has been observed for the watch window (10 sessions or 14 days).
+- A rejected signature stays silent for 90 days. Record it with `--reject`; do
+  not re-propose it next week, and do not argue with a rejection unless the rate
+  has doubled.
+- Never hand-edit an EXPERIENCE line. `watch.mjs` owns the `**pending**` marker
+  and rewrites it in place; editing it by hand makes the timeline lie.

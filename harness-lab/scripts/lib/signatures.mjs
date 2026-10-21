@@ -75,3 +75,22 @@ export function activeRejections(rejections, now = Date.now()) {
   }
   return active
 }
+
+/**
+ * Apply the evidence bar and the cooldown together.
+ *
+ * The digest and its tests both call this, so "a rejected signature stops being
+ * a candidate" has exactly one implementation and cannot drift between them.
+ *
+ * @param {object[]} signatures clustered signatures
+ * @param {{mode?: 'global'|'project', rejections?: object, now?: number, limit?: number}} options
+ * @returns {{cooling: Map<string, object>, candidates: object[]}}
+ */
+export function selectCandidates(signatures, { mode, rejections = {}, now = Date.now(), limit = Infinity } = {}) {
+  const cooling = activeRejections(rejections, now)
+  const eligible = signatures.filter((entry) => !cooling.has(entry.key))
+  return {
+    cooling,
+    candidates: candidatesFor(eligible, { mode }).slice(0, limit),
+  }
+}

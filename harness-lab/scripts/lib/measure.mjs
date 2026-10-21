@@ -16,17 +16,25 @@ import { signatureOf } from './signatures.mjs'
 /**
  * Count one signature across digests.
  *
- * `sessions` is the number of digests where the signature occurs at least once,
- * `hits` is every occurrence across them, and `sessionsPerHit` is their ratio
- * (higher means the friction is spread wide rather than concentrated). A
- * signature with no hits still returns a measured zero, which is different from
- * "not measured": the caller decides that distinction, not this module.
+ * Two ratios matter and they answer different questions. `hitsPerSession` is
+ * occurrences per *session in the corpus*, so it falls when sessions stop
+ * hitting the friction and also when they stop happening at all — it is the
+ * rate a proposal is judged by. `sessionsPerHit` is how concentrated the hits
+ * are (lower means fewer sessions carry more of them) and is reported for
+ * reading, never for a verdict, because it moves when a fix merely spreads the
+ * same failures over more sessions.
+ *
+ * A signature with no hits still returns a measured zero over a non-empty
+ * corpus, which is different from "not measured": the caller decides that
+ * distinction, not this module.
  *
  * @param {object[]} digests per-session digests as written by digest.mjs
  * @param {string} signature friction key, e.g. `edit:FsError/FS_NOT_OBSERVED`
- * @returns {{ sessions: number, hits: number, sessionsPerHit: number|null }}
+ * @returns {{ corpusSessions: number, sessions: number, hits: number,
+ *             hitsPerSession: number|null, sessionsPerHit: number|null }}
  */
 export function measureSignature(digests, signature) {
+  const corpusSessions = digests.length
   let sessions = 0
   let hits = 0
   for (const digest of digests) {
@@ -39,7 +47,50 @@ export function measureSignature(digests, signature) {
       hits += seen
     }
   }
-  return { sessions, hits, sessionsPerHit: hits === 0 ? null : sessions / hits }
+  return {
+    corpusSessions,
+    sessions,
+    hits,
+    hitsPerSession: corpusSessions === 0 ? null : hits / corpusSessions,
+    sessionsPerHit: hits === 0 ? null : sessions / hits,
+  }
+}
+
+/** A rise past this share of the baseline counts as a regression worth reverting. */
+export const REGRESSION_BAND = 0.25
+
+/**
+ * Judge one adoption by its before/after rates.
+ *
+ * `kept` means the rate fell at all; `reverted` means it rose by more than
+ * `REGRESSION_BAND`; anything in between is `inconclusive` rather than a
+ * verdict, because a flat rate cannot distinguish a weak fix from an unchanged
+ * one. A missing or zero baseline is inconclusive by construction: there is no
+ * rate to compare against, and claiming a win from it would be an artifact.
+ *
+ * @param {{hitsPerSession: number|null}|null} baseline rate recorded at apply time
+ * @param {{hitsPerSession: number|null, corpusSessions: number}|null} after rate over later sessions
+ * @returns {{ state: 'kept'|'reverted'|'inconclusive', reason: string|null }}
+ */
+export function classifyOutcome(baseline, after) {
+  if (!baseline || baseline.hitsPerSession === null || baseline.hitsPerSession === undefined) {
+    return { state: 'inconclusive', reason: 'no baseline rate' }
+  }
+  if (!after || after.corpusSessions === 0) {
+    return { state: 'inconclusive', reason: 'no later sessions' }
+  }
+  const before = baseline.hitsPerSession
+  const now = after.hitsPerSession ?? 0
+  if (before === 0) {
+    return now > 0
+      ? { state: 'reverted', reason: `rose from a zero baseline to ${now.toFixed(2)} per session` }
+      : { state: 'inconclusive', reason: 'baseline rate was already zero' }
+  }
+  if (now < before) return { state: 'kept', reason: null }
+  if (now > before * (1 + REGRESSION_BAND)) {
+    return { state: 'reverted', reason: `rose ${(((now - before) / before) * 100).toFixed(0)}% past the ${REGRESSION_BAND * 100}% band` }
+  }
+  return { state: 'inconclusive', reason: 'rate is flat within the regression band' }
 }
 
 /**

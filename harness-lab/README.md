@@ -14,6 +14,10 @@ node scripts/digest.mjs --project ~/work/x    # what recurs in one project
 node scripts/apply-edits.mjs --set proposals/<id>.edits.json           # dry run
 node scripts/apply-edits.mjs --set proposals/<id>.edits.json --write   # apply
 node scripts/apply-edits.mjs --revert <id>                            # undo
+node scripts/apply-edits.mjs --reject <signature> --reason "why"      # silence it for 90 days
+node scripts/watch.mjs                                                # did the edit work?
+node scripts/status.mjs                                               # one screen: adoptions, rejections, drift
+node scripts/selftest.mjs                                             # check the lab itself
 ```
 
 Node 24 is enough — the scripts use `node:zlib` zstd support and no dependencies.
@@ -29,8 +33,10 @@ Node 24 is enough — the scripts use `node:zlib` zstd support and no dependenci
 3. **Propose** — at most three edit sets, each naming one metric dimension and
    citing real sessions.
 4. **Approve** — you read the diff. Nothing is written before that.
-5. **Track** — `kept` or `reverted` once the signature has been observed for the
-   watch window.
+5. **Watch** — `watch.mjs` compares the signature's rate over sessions that
+   started after the adoption with the baseline frozen at apply time, and
+   rewrites the EXPERIENCE line to `kept`, `reverted`, or `inconclusive` once the
+   window closes (10 later sessions or 14 days).
 
 A review that finds nothing is a success and records `verdict: quiet`.
 
@@ -41,10 +47,12 @@ A review that finds nothing is a success and records `verdict: quiet`.
 | `SPEC.md` | the design, including the parts that are still guesses |
 | `skills/harness-improve/SKILL.md` | the agent-facing instructions; symlink into `~/.agents/skills/` to make it discoverable everywhere |
 | `scripts/digest.mjs` | session logs → metrics, moments, signatures |
-| `scripts/apply-edits.mjs` | validate → diff → backup → apply → revert |
-| `scripts/selftest.mjs` | end-to-end applier check: create → append → write → revert |
-| `scripts/lib/` | session parsing, metrics, clustering, diffing |
-| `scripts/lib/measure.mjs` | a signature's rate over the digests: the baseline frozen at apply time, and the definition a later comparison reuses |
+| `scripts/apply-edits.mjs` | validate → diff → backup → apply → revert, plus `--reject` / `--unreject` |
+| `scripts/watch.mjs` | re-measures each adoption and resolves it |
+| `scripts/status.mjs` | adoptions, active rejections, and drift, in one report |
+| `scripts/selftest.mjs` | six end-to-end cases in a throwaway lab; never touches your records |
+| `scripts/lib/` | session parsing, metrics, clustering, diffing, rate measurement |
+| `scripts/lib/measure.mjs` | the definition of "the rate", its before/after comparison, and the verdict band |
 | `proposals/` | edit sets you are considering |
 | `adoptions/` | applied sets with before/after hashes — the audit trail |
 | `backups/<id>/` | the previous content of every touched file |
@@ -55,9 +63,12 @@ A review that finds nothing is a success and records `verdict: quiet`.
 An edit set of kind `add`, `promote`, or `demote` names the friction `signature`
 it targets (`prune`, `compress`, and `move` sets may omit it), and
 `apply-edits.mjs` freezes that signature's rate over `digests/` into
-`adoptions/<id>.json` as `baseline` — `{sessions, hits, sessionsPerHit}`. With
-no digests yet the baseline is `null`, never zero: "not measured" and "measured
-as absent" must stay distinguishable.
+`adoptions/<id>.json` as `baseline` — `{corpusSessions, sessions, hits,
+hitsPerSession, sessionsPerHit}`. The judged number is `hitsPerSession`: hits
+divided by every session in the corpus, so it falls when the friction stops and
+also when sessions stop happening at all. With no digests yet the baseline is
+`null`, never zero: "not measured" and "measured as absent" must stay
+distinguishable.
 
 ## Design notes worth knowing before you extend it
 
@@ -76,3 +87,9 @@ as absent" must stay distinguishable.
 - **Silence needs a heartbeat.** Every run writes `runs/<id>.json` with a
   digested count, so "nothing recurred" is distinguishable from "the loop did
   not run".
+- **State can move.** `HARNESS_LAB_DIR` points the same scripts at another lab
+  directory. The self-test uses it to run against a throwaway lab, which is why
+  it passes on a fresh clone instead of depending on `digests/` being populated.
+- **A verdict needs a window.** `watch.mjs` refuses to judge an adoption before
+  10 later sessions or 14 days, because a rate over two sessions is noise.
+  `inconclusive` is provisional and re-judged; `kept` and `reverted` are final.

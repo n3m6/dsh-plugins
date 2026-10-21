@@ -34,21 +34,44 @@ const OPS = new Set(['create', 'replace', 'append-section', 'replace-section', '
 const SIGNATURE_KINDS = new Set(['add', 'promote', 'demote'])
 const DENY_SEGMENTS = new Set(['.git', 'node_modules', 'profiles', 'backups'])
 const DENY_NAMES = new Set(['settings.yaml', '.credentials.yaml', 'credentials.yaml', '.env'])
+/** How long a rejected signature stays out of the digest's candidate list. */
+const REJECTION_DAYS = 90
 
 function parseArgs(argv) {
-  const args = { set: null, write: false, revert: null, json: false }
+  const args = {
+    set: null,
+    write: false,
+    revert: null,
+    reject: null,
+    unreject: null,
+    reason: null,
+    json: false,
+  }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--set') args.set = argv[++i]
     else if (arg === '--write') args.write = true
     else if (arg === '--revert') args.revert = argv[++i]
+    else if (arg === '--reject') args.reject = argv[++i]
+    else if (arg === '--unreject') args.unreject = argv[++i]
+    else if (arg === '--reason') args.reason = argv[++i]
     else if (arg === '--json') args.json = true
     else if (arg === '--help' || arg === '-h') {
-      console.log('Usage: apply-edits.mjs --set <file.edits.json> [--write] | --revert <adoption-id>')
+      console.log(
+        [
+          'Usage:',
+          '  apply-edits.mjs --set <file.edits.json> [--write]',
+          '  apply-edits.mjs --revert <adoption-id>',
+          '  apply-edits.mjs --reject <signature> [--reason "<text>"]',
+          '  apply-edits.mjs --unreject <signature>',
+        ].join('\n'),
+      )
       process.exit(0)
     } else throw new Error(`unknown argument: ${arg}`)
   }
-  if (!args.set && !args.revert) throw new Error('one of --set or --revert is required')
+  const modes = [args.set, args.revert, args.reject, args.unreject].filter(Boolean)
+  if (modes.length !== 1) throw new Error('exactly one of --set, --revert, --reject, --unreject is required')
+  if (args.write && !args.set) throw new Error('--write applies only to --set')
   return args
 }
 
@@ -112,6 +135,24 @@ function applyOp(op, before, edit, content) {
 }
 
 /**
+ * Normalize one signature string.
+ *
+ * The key is later embedded in `rejections.json`, matched against the digest's
+ * clusters, and written into EXPERIENCE.md, so it must be a single token.
+ * @param {unknown} value candidate signature
+ * @returns {string} the trimmed signature
+ */
+function normalizeSignature(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('signature must be a non-empty string')
+  }
+  const trimmed = value.trim()
+  if (/\s/.test(trimmed)) throw new Error(`signature must not contain whitespace: ${value}`)
+  if (trimmed.length > 200) throw new Error('signature is longer than 200 characters')
+  return trimmed
+}
+
+/**
  * Validate the signature an edit set targets.
  *
  * A signature is the friction key the digest clusters on — `tool:ErrorClass`,
@@ -128,13 +169,7 @@ function signatureOfSet(raw) {
     }
     return null
   }
-  if (typeof signature !== 'string' || signature.trim() === '') {
-    throw new Error('signature must be a non-empty string')
-  }
-  const trimmed = signature.trim()
-  if (/\s/.test(trimmed)) throw new Error(`signature must not contain whitespace: ${signature}`)
-  if (trimmed.length > 200) throw new Error('signature is longer than 200 characters')
-  return trimmed
+  return normalizeSignature(signature)
 }
 
 async function plan(setPath) {
@@ -211,7 +246,10 @@ function describe(set, steps, baseline) {
   console.log(`  dimension ${set.dimension ?? '(unset)'}`)
   if (set.signature) console.log(`  signature ${set.signature}`)
   if (baseline) {
-    console.log(`  baseline  ${baseline.sessions} session(s), ${baseline.hits} hit(s) across the current digests`)
+    const rate = (baseline.hitsPerSession ?? 0).toFixed(2)
+    console.log(
+      `  baseline  ${baseline.hits} hit(s) over ${baseline.corpusSessions} session(s) = ${rate} per session`,
+    )
   } else if (set.signature) {
     console.log('  baseline  none — no digests yet, this adoption cannot be measured until one runs')
   }
@@ -322,9 +360,45 @@ async function revert(id) {
   console.log(`reverted ${id} (${record.files.length} files)`)
 }
 
+/**
+ * Silence one signature for the cooldown window.
+ *
+ * The digest reads this file, so a rejection is the only thing standing between
+ * a signature the user turned down and it being proposed again next week.
+ * Re-rejecting refreshes the window rather than erroring: a repeat decision is
+ * still a decision, and it should extend the quiet period from today.
+ * @param {string} signature friction key
+ * @param {string|null} reason one line, shown by the digest's cooling section
+ */
+async function rejectSignature(signature, reason) {
+  const key = normalizeSignature(signature)
+  const store = await readJson(paths.rejections, {})
+  const at = new Date()
+  const until = new Date(at.getTime() + REJECTION_DAYS * 86_400_000)
+  store[key] = { at: at.toISOString(), until: until.toISOString(), reason: (reason ?? '').trim() || null }
+  await writeJson(paths.rejections, store)
+  const note = store[key].reason ? ` — ${store[key].reason}` : ''
+  console.log(`rejected ${key} for ${REJECTION_DAYS} days, until ${until.toISOString().slice(0, 10)}${note}`)
+}
+
+/** Remove a rejection so the signature may be proposed again immediately. */
+async function unrejectSignature(signature) {
+  const key = normalizeSignature(signature)
+  const store = await readJson(paths.rejections, {})
+  if (!Object.hasOwn(store, key)) {
+    console.log(`${key} is not rejected`)
+    return
+  }
+  delete store[key]
+  await writeJson(paths.rejections, store)
+  console.log(`released ${key}`)
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.revert) return revert(args.revert)
+  if (args.reject) return rejectSignature(args.reject, args.reason)
+  if (args.unreject) return unrejectSignature(args.unreject)
 
   const { raw, steps, files, signature, baseline } = await plan(args.set)
   describe(raw, steps, baseline)

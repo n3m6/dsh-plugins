@@ -168,7 +168,7 @@ A proposal is a diff plus evidence plus a claim. It is not applied until you say
 so, and it is not forgotten until it is resolved.
 
 ```
-pending ──approve──► adopted ──later──► kept | reverted
+pending ──approve──► adopted ──window──► kept | reverted | inconclusive
    │
    ├──reject──► rejected ──90 days──► eligible again
    └──newer proposal on same signature──► superseded
@@ -185,8 +185,14 @@ pending ──approve──► adopted ──later──► kept | reverted
   repo: the target is an ordinary checkout, and committing there would pollute
   your history. `adoptions/<id>.json` carries before/after hashes and the
   evidence; `backups/<id>/` holds the previous content; `--revert` restores.
-- **Outcome tracking.** Adopted proposals are re-checked after N sessions on
-  their named dimension: `kept` or `reverted`. Both outcomes go to
+- **Outcome tracking.** An adoption is judged only after its signature has been
+  observed for the watch window — 10 sessions that started after the adoption, or
+  14 days, whichever comes later — because a rate over two sessions is noise.
+  The judged number is `hitsPerSession` over the later corpus, compared with the
+  baseline frozen at apply time: `kept` when it fell at all, `reverted` when it
+  rose by more than 25%, `inconclusive` inside that band. Two outcomes are
+  provisional by design: `inconclusive` is re-judged as the corpus grows, and a
+  null baseline can only ever be inconclusive. Both write back to
   `EXPERIENCE.md`. A failure that is recorded is worth more than a success that
   is assumed.
 
