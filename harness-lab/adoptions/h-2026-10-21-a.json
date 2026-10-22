@@ -60,5 +60,24 @@
   "baselineCorpus": {
     "sessions": 183,
     "after": 4
+  },
+  "resolution": {
+    "state": "kept",
+    "at": "2026-10-22T02:45:04.464Z",
+    "reason": null,
+    "after": {
+      "corpusSessions": 13,
+      "sessions": 4,
+      "hits": 7,
+      "hitsPerSession": 0.5384615384615384,
+      "sessionsPerHit": 0.5714285714285714
+    },
+    "before": {
+      "corpusSessions": 183,
+      "sessions": 75,
+      "hits": 232,
+      "hitsPerSession": 1.2677595628415301,
+      "sessionsPerHit": 0.3232758620689655
+    }
   }
 }
