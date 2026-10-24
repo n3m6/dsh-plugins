@@ -30,6 +30,8 @@ Use equivalent platform capabilities while preserving role, write-isolation, pro
 
 **On DeepSeek Harness**, read [DSH.md](DSH.md) before planning a run. It maps these terms to Harness sub-agent tools, states that the Harness sandbox cannot meet the execution controls below, and fixes the resulting source-only execution policy.
 
+**On OpenCode**, read [OPENCODE.md](OPENCODE.md) before planning a run. It maps these terms to the `subagent` tool and the built-in `explore`/`general` agents, states that OpenCode's shell is not an OS-enforced sandbox, and fixes the resulting source-only execution policy.
+
 ## Universal execution safety
 
 These rules apply in both operating modes. Source inspection is read-only. Run target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixture processing only inside an OS-enforced sandbox that provides all of these controls:
